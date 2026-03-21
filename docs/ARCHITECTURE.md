@@ -6,7 +6,7 @@ This is a Python Shiny web application for interactive data preprocessing and ex
 
 | # | Component | Points | Status |
 |---|-----------|--------|--------|
-| 1 | Loading Datasets | 8 | Skeleton + working CSV/built-in loader |
+| 1 | Loading Datasets | 8 | 7 formats (CSV, TSV, Excel, JSON, Parquet, RDS, XML) + Titanic/Ames built-in + column summary |
 | 2 | Data Cleaning & Preprocessing | 8 | Skeleton + working drop-NaN example |
 | 3 | Feature Engineering | 8 | Skeleton + working log-transform example |
 | 4 | Exploratory Data Analysis | 8 | Skeleton + working plotly histogram |
@@ -78,7 +78,7 @@ The `SharedDataStore` class (in `shared/data_store.py`) holds reactive values fo
 
 | Module File | Team Member | Reads | Writes | Skeleton Provides |
 |-------------|-------------|-------|--------|-------------------|
-| `modules/data_loading.py` | Member 1 | — | `raw_data`, `data_info` | CSV upload, built-in dataset selector, data preview |
+| `modules/data_loading.py` | Member 1 | — | `raw_data`, `data_info` | 7-format upload with auto-detect, Titanic/Ames built-in, paginated data table, column summary, downstream reset |
 | `modules/data_cleaning.py` | Member 2 | `raw_data` | `cleaned_data` | Missing value summary, drop-NaN button, working copy pattern |
 | `modules/feature_engineering.py` | Member 3 | `cleaned_data` | `engineered_data` | Column selector, log/sqrt transform, preview pattern |
 | `modules/eda.py` | Member 4 | all stages | — | Data stage selector, plotly histogram, summary statistics |
@@ -96,7 +96,7 @@ modules/
 shared/
     __init__.py                     # Re-exports SharedDataStore and sample dataset helpers
     data_store.py                   # SharedDataStore class with reactive values
-    sample_datasets.py              # Built-in iris + wine datasets via sklearn
+    sample_datasets.py              # Built-in Titanic + Ames Housing datasets from bundled CSVs
 docs/
     ARCHITECTURE.md                 # This file
 requirements.txt                    # Python dependencies
