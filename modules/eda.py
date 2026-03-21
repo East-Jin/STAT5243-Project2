@@ -28,7 +28,7 @@ def eda_ui():
                     "engineered": "Engineered Data",
                 },
             ),
-            ui.output_ui("column_selector_ui"),
+            # ui.output_ui("column_selector_ui"),
             ui.hr(),
 
             # =================================================================
@@ -42,14 +42,33 @@ def eda_ui():
             #   - Distribution fit options (via statsmodels)
             # =================================================================
 
+            ui.h5("Plot Settings"),
+            ui.input_select(
+                "plot_type",
+                "Select Plot Type",
+                choices=["Scatter Plot", "Bar Chart (Average)", "Box Plot"]
+            ),
+            ui.output_ui("column_selector_ui"),
+
+            ui.hr(),
+            ui.p(
+                "💡 Tip: To download the plot, hover over the top right corner of the chart and click the camera icon ('Download plot as a png').",
+                class_="text-muted",
+                style="font-size: 0.85em;"
+            ),
+
             width=320,
         ),
         # Main panel
         ui.output_ui("guard_message"),
         ui.navset_card_tab(
             ui.nav_panel(
-                "Histogram",
-                output_widget("histogram_plot"),
+                "Interactive Plot",
+                output_widget("interactive_plot"),
+            ),
+            ui.nav_panel(
+                "Correlation Heatmap",
+                output_widget("heatmap_plot"),
             ),
             ui.nav_panel(
                 "Summary Statistics",
@@ -65,6 +84,7 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
     # =========================================================================
     # === PREREQUISITE GUARD (DO NOT MODIFY) ===
     # =========================================================================
+
     @render.ui
     def guard_message():
         if shared_store.raw_data() is None:
@@ -76,7 +96,6 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
                 ),
             )
         return ui.TagList()
-    # =========================================================================
 
     @reactive.calc
     def selected_data() -> pd.DataFrame | None:
@@ -89,27 +108,107 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
             return shared_store.engineered_data()
         return None
 
+    # =========================================================================
+    # === DYNAMIC UI FOR X AND Y VARIABLES ===
+    # =========================================================================
+
     @render.ui
     def column_selector_ui():
         df = selected_data()
         if df is None:
             return ui.p("No data for this stage", class_="text-muted")
+
+        all_cols = df.columns.tolist()
         numeric_cols = df.select_dtypes(include="number").columns.tolist()
-        if not numeric_cols:
-            return ui.p("No numeric columns", class_="text-warning")
-        return ui.input_select("eda_column", "Select Column", choices=numeric_cols)
+
+        if not all_cols:
+            return ui.p("Dataset is empty", class_="text-warning")
+
+        return ui.TagList(
+            ui.input_select("x_var", "X Variable (Feature / Category)", choices=all_cols),
+            # The Y-axis typically needs to be numeric; if no numeric type is specified, all columns are used by default.
+            ui.input_select("y_var", "Y Variable (Target / Value)", choices=numeric_cols if numeric_cols else all_cols),
+            ui.input_select("color_var", "Color / Group By (Optional)", choices=["None"] + all_cols)
+        )
+
+    # =========================================================================
+    # === PLOTTING LOGIC ===
+    # =========================================================================
 
     @render_widget
-    def histogram_plot():
+    def interactive_plot():
         df = selected_data()
         if df is None:
-            return px.histogram(pd.DataFrame({"empty": []}), title="No data available")
-        col = input.eda_column()
-        if col not in df.columns:
-            return px.histogram(pd.DataFrame({"empty": []}), title="Select a column")
-        fig = px.histogram(df, x=col, title=f"Distribution of {col}", marginal="box")
+            return px.scatter(title="No data available")
+
+        x_col = input.x_var()
+        y_col = input.y_var()
+        plot_type = input.plot_type()
+        color_col = input.color_var()
+
+        # Prevent errors from occurring before the UI has finished rendering
+        c_val = None if color_col == "None" or color_col not in df.columns else color_col
+
+        if not x_col or not y_col or x_col not in df.columns or y_col not in df.columns:
+            return px.scatter(title="Waiting for variable selection...")
+
+        # Dynamically generate different graphics based on user selection
+        if plot_type == "Scatter Plot":
+            fig = px.scatter(
+                df, x=x_col, y=y_col, color=c_val,
+                title=f"Scatter Plot: {y_col} vs {x_col}",
+                opacity=0.7
+            )
+        elif plot_type == "Bar Chart (Average)":
+            # Bar chart: Calculate the average value of Y for different values of X
+            fig = px.histogram(
+                df, x=x_col, y=y_col, color=c_val,
+                histfunc='avg',barmode='group',
+                title=f"Bar Chart: Average {y_col} by {x_col}"
+            )
+            fig.update_layout(yaxis_title=f"Average of {y_col}")
+        elif plot_type == "Box Plot":
+            fig = px.box(
+                df, x=x_col, y=y_col, color=c_val,
+                title=f"Box Plot: Distribution of {y_col} across {x_col}",
+            )
+
+        # Apply chart theme
         fig.update_layout(template="plotly_white")
         return fig
+
+    # =========================================================================
+    # === CORRELATION HEATMAP ===
+    # =========================================================================
+
+    @render_widget
+    def heatmap_plot():
+        df = selected_data()
+        if df is None:
+            return px.imshow([[0]], title="No data available")
+
+        # Extract all numeric variables
+        numeric_df = df.select_dtypes(include="number")
+        if numeric_df.empty or numeric_df.shape[1] < 2:
+            return px.imshow([[0]], title="Not enough numeric columns for heatmap")
+
+        # Calculate the Pearson correlation coefficient
+        corr_matrix = numeric_df.corr().round(2)
+
+        # Creating a Heatmap with Plotly
+        fig = px.imshow(
+            corr_matrix,
+            text_auto=True,  # Automatically display values in the cells
+            aspect="auto",
+            color_continuous_scale="RdBu_r",  # Red-Blue reversed
+            title="Correlation Matrix of Numeric Variables"
+        )
+        fig.update_layout(template="plotly_white")
+        return fig
+
+    # =========================================================================
+    # === SUMMARY TABLE ===
+    # =========================================================================
 
     @render.data_frame
     def summary_table():
