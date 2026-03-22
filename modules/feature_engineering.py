@@ -14,6 +14,63 @@ import plotly.express as px
 from shiny import Inputs, Outputs, Session, module, reactive, render, ui
 from shinywidgets import output_widget, render_widget
 
+# Help explanations shown in the sidebar; updates with the selected operation / transform.
+_SINGLE_TRANSFORM_HELP: dict[str, str] = {
+    "log": (
+        "Natural logarithm ln(x). Compresses large values and reduces right skew. "
+        "Requires positive values; non-positive values are clipped before logging."
+    ),
+    "log1p": (
+        "Log1p: ln(1 + x). Use for nonnegative data that may include zeros (e.g. fares, counts). "
+        "The +1 avoids ln(0)."
+    ),
+    "sqrt": (
+        "Square root. Mildly reduces scale and helps with right-skewed nonnegative data; "
+        "negative values are clipped to zero first."
+    ),
+    "square": (
+        "Squares each value to emphasize large magnitudes and add nonlinearity. "
+        "Can amplify outliers."
+    ),
+    "zscore": (
+        "Z-score: subtract the column mean and divide by the standard deviation "
+        "(on the current table). Not available if the column is constant (zero std)."
+    ),
+    "minmax": (
+        "Min–max scaling to the [0, 1] interval using this column’s min and max. "
+        "Not available if min equals max."
+    ),
+    "binning": (
+        "Splits the numeric range into ordered intervals (bins), turning a continuous "
+        "variable into categorical bins. Increase bins for finer granularity."
+    ),
+}
+
+_COMBINE_HELP: dict[str, str] = {
+    "add": (
+        "Sum of two numeric columns. Useful for totals (e.g. combining counts into a size measure)."
+    ),
+    "multiply": (
+        "Product of two columns. Captures joint magnitude when both values increase together."
+    ),
+    "ratio": (
+        "First column divided by the second. Describes relative size; zeros in the denominator "
+        "become missing (NaN)."
+    ),
+}
+
+_DATETIME_PART_HELP: dict[str, str] = {
+    "year": "Calendar year of each timestamp.",
+    "month": "Month of year (1–12).",
+    "day": "Day of month.",
+    "dayofweek": "Weekday index: Monday=0 through Sunday=6.",
+    "hour": "Hour of day (0–23).",
+    "minute": "Minute within the hour (0–59).",
+    "quarter": "Calendar quarter (1–4).",
+    "is_weekend": "1 if Saturday or Sunday, else 0.",
+    "dayofyear": "Day index within the year (1–366).",
+}
+
 
 @module.ui
 def feature_engineering_ui():
@@ -35,6 +92,7 @@ def feature_engineering_ui():
 
             ui.output_ui("column_selector_ui"),
             ui.output_ui("operation_controls_ui"),
+            ui.output_ui("transform_help"),
 
             ui.hr(),
             ui.input_text(
@@ -241,6 +299,47 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
                 max=10,
                 value=4,
             )
+        return ui.TagList()
+
+    @render.ui
+    def transform_help():
+        """Per-operation / per-transform English explanations for the rubric."""
+        if working_copy() is None:
+            return ui.TagList()
+
+        op = input.operation_type()
+        title = ui.tags.strong("What this transformation does")
+
+        if op == "single":
+            tt = input.transform_type()
+            body = _SINGLE_TRANSFORM_HELP.get(tt, "")
+            return ui.div(
+                title,
+                ui.p(body, class_="small text-muted mb-0 mt-1"),
+                class_="border rounded p-2 mb-2 bg-light",
+            )
+
+        if op == "combine":
+            ct = input.combine_type()
+            body = _COMBINE_HELP.get(ct, "")
+            return ui.div(
+                title,
+                ui.p(body, class_="small text-muted mb-0 mt-1"),
+                class_="border rounded p-2 mb-2 bg-light",
+            )
+
+        if op == "datetime":
+            part = input.datetime_part()
+            body = _DATETIME_PART_HELP.get(
+                part,
+                "Extracts a date/time component from the selected column for seasonality or calendar effects.",
+            )
+            return ui.div(
+                title,
+                ui.p(body, class_="small text-muted mb-0 mt-1"),
+                class_="border rounded p-2 mb-2 bg-light",
+            )
+
         return ui.TagList()
 
     def _datetime_candidate_columns(df: pd.DataFrame) -> list[str]:
