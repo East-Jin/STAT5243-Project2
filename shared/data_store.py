@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 from shiny import reactive
 
-from shared.sample_datasets import get_iris
+from shared.sample_datasets import get_titanic
 
 
 class SharedDataStore:
@@ -41,15 +41,24 @@ class SharedDataStore:
             return "raw"
         return "none"
 
+    def reset_downstream(self):
+        """Clear cleaned and engineered data (called when a new raw dataset is loaded)."""
+        self.cleaned_data.set(None)
+        self.engineered_data.set(None)
+
+    def has_downstream_data(self) -> bool:
+        return self.cleaned_data() is not None or self.engineered_data() is not None
+
     def dev_mode_init(self):
-        """Pre-fill all pipeline stages with iris data for independent testing."""
-        df = get_iris()
+        """Pre-fill all pipeline stages with Titanic data for independent testing."""
+        df = get_titanic()
         self.raw_data.set(df)
         self.cleaned_data.set(df.copy())
         self.engineered_data.set(df.copy())
         self.data_info.set(
             {
-                "filename": "iris (dev mode)",
+                "filename": "Titanic (dev mode)",
+                "format": "Built-in",
                 "rows": df.shape[0],
                 "columns": df.shape[1],
             }

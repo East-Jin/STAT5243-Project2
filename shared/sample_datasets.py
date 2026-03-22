@@ -1,22 +1,24 @@
+from pathlib import Path
+
 import pandas as pd
-from sklearn.datasets import load_iris, load_wine
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
-def get_iris() -> pd.DataFrame:
-    data = load_iris()
-    df = pd.DataFrame(data.data, columns=data.feature_names)
-    df["species"] = pd.Categorical.from_codes(data.target, data.target_names)
-    return df
+def get_titanic() -> pd.DataFrame:
+    return pd.read_csv(DATA_DIR / "titanic.csv")
 
 
-def get_wine() -> pd.DataFrame:
-    data = load_wine()
-    df = pd.DataFrame(data.data, columns=data.feature_names)
-    df["wine_class"] = pd.Categorical.from_codes(data.target, data.target_names)
-    return df
+def get_ames_housing() -> pd.DataFrame:
+    return pd.read_csv(DATA_DIR / "ames_housing.csv")
 
 
 BUILTIN_DATASETS = {
-    "iris": get_iris,
-    "wine": get_wine,
+    "titanic": get_titanic,
+    "ames_housing": get_ames_housing,
+}
+
+BUILTIN_LABELS = {
+    "titanic": "Titanic (classification)",
+    "ames_housing": "Ames Housing (regression)",
 }
