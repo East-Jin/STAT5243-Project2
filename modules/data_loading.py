@@ -16,7 +16,7 @@ from shiny import Inputs, Outputs, Session, module, reactive, render, ui
 
 from shared.sample_datasets import BUILTIN_DATASETS, BUILTIN_LABELS
 
-ACCEPTED_EXTENSIONS = [".csv", ".tsv", ".txt", ".xlsx", ".xls", ".json", ".parquet", ".rds", ".xml"]
+ACCEPTED_EXTENSIONS = [".csv", ".tsv", ".xlsx", ".xls", ".json", ".parquet", ".rds", ".xml"]
 
 _CATEGORICAL_THRESHOLD = 30
 
@@ -26,7 +26,7 @@ def _read_file(filepath: str, filename: str) -> pd.DataFrame:
     ext = Path(filename).suffix.lower()
     if ext == ".csv":
         return pd.read_csv(filepath)
-    elif ext in (".tsv", ".txt"):
+    elif ext == ".tsv":
         return pd.read_csv(filepath, sep="\t")
     elif ext in (".xlsx", ".xls"):
         return pd.read_excel(filepath)
@@ -46,7 +46,7 @@ def _read_file(filepath: str, filename: str) -> pd.DataFrame:
 def _format_from_filename(filename: str) -> str:
     ext = Path(filename).suffix.lower()
     fmt_map = {
-        ".csv": "CSV", ".tsv": "TSV", ".txt": "TSV", ".xlsx": "Excel",
+        ".csv": "CSV", ".tsv": "TSV", ".xlsx": "Excel",
         ".xls": "Excel", ".json": "JSON", ".parquet": "Parquet",
         ".rds": "RDS", ".xml": "XML",
     }
