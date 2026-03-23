@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from shiny import Inputs, Outputs, Session, module, reactive, render, ui
 from shinywidgets import output_widget, render_widget
 
@@ -102,11 +103,6 @@ def feature_engineering_ui():
             ),
 
             ui.input_action_button(
-                "preview_transform",
-                "Preview",
-                class_="btn-outline-info w-100 mb-2",
-            ),
-            ui.input_action_button(
                 "apply_transform",
                 "Apply & Save",
                 class_="btn-primary w-100 mb-2",
@@ -119,10 +115,13 @@ def feature_engineering_ui():
 
             ui.hr(),
             ui.p(
-                "Tip: Preview lets you inspect the new feature before saving it to engineered data.",
+                "Tip: The preview updates live as you change selections. Click Apply & Save to keep the feature.",
                 class_="text-muted",
                 style="font-size: 0.9em;",
             ),
+            ui.hr(),
+            ui.h5("Feature History"),
+            ui.output_ui("feature_history"),
             width=340,
         ),
 
@@ -130,34 +129,34 @@ def feature_engineering_ui():
 
         ui.navset_card_tab(
             ui.nav_panel(
-                "Preview Table",
-                ui.h4("Transform Preview"),
+                "Preview",
                 ui.output_ui("status_message"),
-                ui.output_data_frame("transform_preview"),
+                ui.div(
+                    ui.div(
+                        output_widget("before_plot"),
+                        ui.br(),
+                        output_widget("after_plot"),
+                        style="flex: 1 1 0; min-width: 0;",
+                    ),
+                    ui.div(
+                        ui.output_data_frame("transform_preview"),
+                        style="flex: 0 0 auto; resize: horizontal; overflow: auto; min-width: 150px; max-width: 50%; border-left: 1px solid #dee2e6; padding-left: 8px;",
+                    ),
+                    style="display: flex; height: 100%; gap: 8px;",
+                ),
             ),
             ui.nav_panel(
                 "Current Data",
                 ui.h4("Current Working Data"),
                 ui.output_data_frame("current_data"),
             ),
-            ui.nav_panel(
-                "Visual Feedback",
-                ui.h4("Before / After Distribution"),
-                output_widget("before_plot"),
-                ui.br(),
-                output_widget("after_plot"),
-            ),
-            ui.nav_panel(
-                "Feature History",
-                ui.h4("Created Features"),
-                ui.output_ui("feature_history"),
-            ),
         ),
+        ui.output_ui("next_step_btn"),
     )
 
 
 @module.server
-def feature_engineering_server(input: Inputs, output: Outputs, session: Session, shared_store):
+def feature_engineering_server(input: Inputs, output: Outputs, session: Session, shared_store, app_session=None):
 
     # =========================================================================
     # === PREREQUISITE GUARD (DO NOT MODIFY) ===
@@ -189,6 +188,7 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
             preview_df.set(None)
             preview_meta.set({})
             feature_history_store.set([])
+            shared_store.engineered_data.set(None)
             status_store.set("Working copy synced from cleaned data.")
 
     @reactive.effect
@@ -366,6 +366,105 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
     def _safe_feature_name(default_name: str) -> str:
         custom_name = input.custom_feature_name().strip()
         return custom_name if custom_name else default_name
+
+    @reactive.calc
+    def live_preview():
+        """Compute transform preview reactively based on current sidebar selections."""
+        df = working_copy()
+        if df is None:
+            return None, {}
+
+        result = df.copy()
+        try:
+            if input.operation_type() == "single":
+                col = input.target_column()
+                transform = input.transform_type()
+                if col not in result.columns:
+                    return None, {}
+
+                if transform == "log":
+                    new_col_name = f"{col}_log"
+                    result[new_col_name] = np.log(result[col].clip(lower=1e-10))
+                elif transform == "log1p":
+                    new_col_name = f"{col}_log1p"
+                    result[new_col_name] = np.log1p(result[col].clip(lower=0))
+                elif transform == "sqrt":
+                    new_col_name = f"{col}_sqrt"
+                    result[new_col_name] = np.sqrt(result[col].clip(lower=0))
+                elif transform == "square":
+                    new_col_name = f"{col}_square"
+                    result[new_col_name] = np.square(result[col])
+                elif transform == "zscore":
+                    new_col_name = f"{col}_zscore"
+                    std = result[col].std()
+                    if std == 0 or pd.isna(std):
+                        return None, {}
+                    result[new_col_name] = (result[col] - result[col].mean()) / std
+                elif transform == "minmax":
+                    new_col_name = f"{col}_minmax"
+                    col_min, col_max = result[col].min(), result[col].max()
+                    if col_min == col_max:
+                        return None, {}
+                    result[new_col_name] = (result[col] - col_min) / (col_max - col_min)
+                elif transform == "binning":
+                    bins = input.num_bins()
+                    new_col_name = f"{col}_binned"
+                    result[new_col_name] = pd.cut(result[col], bins=bins, include_lowest=True).astype(str)
+                else:
+                    return None, {}
+
+                return result, {"mode": "single", "source_col": col, "new_col": new_col_name}
+
+            elif input.operation_type() == "datetime":
+                col = input.datetime_column()
+                part = input.datetime_part()
+                if col not in result.columns:
+                    return None, {}
+
+                ts = _series_as_datetime(result[col])
+                if ts.notna().sum() == 0:
+                    return None, {}
+
+                suffix = {"year": "year", "month": "month", "day": "day", "dayofweek": "dow",
+                           "hour": "hour", "minute": "minute", "quarter": "quarter",
+                           "is_weekend": "weekend", "dayofyear": "doy"}.get(part, part)
+                new_col_name = f"{col}_{suffix}"
+
+                part_map = {
+                    "year": ts.dt.year, "month": ts.dt.month, "day": ts.dt.day,
+                    "dayofweek": ts.dt.dayofweek, "hour": ts.dt.hour, "minute": ts.dt.minute,
+                    "quarter": ts.dt.quarter, "is_weekend": ts.dt.dayofweek.isin([5, 6]).astype(int),
+                    "dayofyear": ts.dt.dayofyear,
+                }
+                if part not in part_map:
+                    return None, {}
+                result[new_col_name] = part_map[part]
+                return result, {"mode": "datetime", "source_col": col, "new_col": new_col_name}
+
+            else:  # combine
+                col1 = input.first_column()
+                col2 = input.second_column()
+                combine_type = input.combine_type()
+                if col1 not in result.columns or col2 not in result.columns:
+                    return None, {}
+
+                if combine_type == "add":
+                    new_col_name = f"{col1}_plus_{col2}"
+                    result[new_col_name] = result[col1] + result[col2]
+                elif combine_type == "multiply":
+                    new_col_name = f"{col1}_times_{col2}"
+                    result[new_col_name] = result[col1] * result[col2]
+                elif combine_type == "ratio":
+                    new_col_name = f"{col1}_div_{col2}"
+                    denominator = result[col2].replace(0, np.nan)
+                    result[new_col_name] = result[col1] / denominator
+                else:
+                    return None, {}
+
+                return result, {"mode": "combine", "source_col": col1, "second_col": col2, "new_col": new_col_name}
+
+        except Exception:
+            return None, {}
 
     @reactive.effect
     @reactive.event(input.preview_transform)
@@ -573,74 +672,65 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
 
     @render.data_frame
     def transform_preview():
-        df = preview_df()
+        df, meta = live_preview()
         if df is None:
             return pd.DataFrame()
-        meta = preview_meta()
         if meta and meta.get("new_col") in df.columns:
             cols_to_show = [meta.get("source_col"), meta.get("new_col")]
             if meta.get("mode") == "combine":
                 cols_to_show = [meta.get("source_col"), meta.get("second_col"), meta.get("new_col")]
             cols_to_show = [c for c in cols_to_show if c in df.columns]
-            return render.DataGrid(df[cols_to_show].head(20), filters=True)
-        return render.DataGrid(df.head(20), filters=True)
+            return render.DataGrid(df[cols_to_show], height="100%")
+        return pd.DataFrame()
 
     @render.data_frame
     def current_data():
         df = working_copy()
         if df is None:
             return pd.DataFrame()
-        return render.DataGrid(df.head(20), filters=True)
+        return render.DataGrid(df, height="100%")
 
     @render_widget
     def before_plot():
         df = working_copy()
-        meta = preview_meta()
+        if df is None:
+            return go.Figure(layout=go.Layout(title="Select a column to see its distribution."))
 
-        if df is None or not meta:
-            return px.histogram(title="Create a preview to see visual feedback.")
+        _, meta = live_preview()
+
+        if not meta:
+            return go.Figure(layout=go.Layout(title="Select a column to see its distribution."))
 
         source_col = meta.get("source_col")
         if source_col not in df.columns:
-            return px.histogram(title="Source column not found.")
+            return go.Figure(layout=go.Layout(title="Source column not found."))
 
         if meta.get("mode") == "datetime":
             ts = _series_as_datetime(df[source_col])
             tdf = pd.DataFrame({"time": ts.dropna()})
             if tdf.empty:
-                return px.histogram(title="No parseable dates for plotting.")
-            fig = px.histogram(
-                tdf,
-                x="time",
-                nbins=30,
-                title=f"Before: {source_col} (parsed timeline)",
-            )
+                return go.Figure(layout=go.Layout(title="No parseable dates for plotting."))
+            fig = px.histogram(tdf, x="time", nbins=30, title=f"Before: {source_col} (parsed timeline)")
             fig.update_layout(template="plotly_white")
             return fig
 
         if not pd.api.types.is_numeric_dtype(df[source_col]):
-            return px.histogram(title="No numeric source column available for plotting.")
+            return go.Figure(layout=go.Layout(title="No numeric source column available for plotting."))
 
-        fig = px.histogram(
-            df,
-            x=source_col,
-            nbins=20,
-            title=f"Before: {source_col}",
-        )
+        fig = px.histogram(df, x=source_col, nbins=20, title=f"Before: {source_col}")
         fig.update_layout(template="plotly_white")
         return fig
 
     @render_widget
     def after_plot():
-        df = preview_df()
-        meta = preview_meta()
+        df, meta = live_preview()
 
         if df is None or not meta:
-            return px.histogram(title="Create a preview to see visual feedback.")
+            return go.Figure(layout=go.Layout(title="Select a transformation to see the result."))
 
         new_col = meta.get("new_col")
         if new_col not in df.columns:
-            return px.histogram(title="Preview feature not found.")
+            return go.Figure(layout=go.Layout(title="Preview feature not found."))
 
         if pd.api.types.is_numeric_dtype(df[new_col]):
             fig = px.histogram(
@@ -668,3 +758,24 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
         if not history:
             return ui.p("No engineered features have been saved yet.", class_="text-muted")
         return ui.tags.ul([ui.tags.li(name) for name in history])
+
+    # -- Proceed button --
+
+    @render.ui
+    def next_step_btn():
+        if shared_store.engineered_data() is None:
+            return ui.TagList()
+        return ui.div(
+            ui.input_action_button(
+                "go_to_eda",
+                "Proceed to EDA \u2192",
+                class_="btn-success btn-lg mt-3",
+            ),
+            class_="d-flex justify-content-end",
+        )
+
+    @reactive.effect
+    @reactive.event(input.go_to_eda)
+    def _go_to_eda():
+        target = app_session if app_session is not None else session
+        ui.update_navs("main_nav", selected="EDA", session=target)

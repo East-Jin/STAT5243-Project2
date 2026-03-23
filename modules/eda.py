@@ -301,4 +301,4 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
         desc = df.describe(include="all").T
         desc.insert(0, "column", desc.index)
         desc = desc.reset_index(drop=True)
-        return render.DataGrid(desc, filters=True)
+        return render.DataGrid(desc, filters=False)

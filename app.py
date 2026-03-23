@@ -50,6 +50,10 @@ _GLOBAL_CSS = ui.tags.style(
     "  flex: 1 1 auto;"
     "  min-height: 0;"
     "}"
+    "#shiny-notification-panel {"
+    "  top: 0;"
+    "  bottom: unset !important;"
+    "}"
 )
 
 app_ui = ui.page_navbar(
@@ -72,8 +76,8 @@ def server(input: Inputs, output: Outputs, session: Session):
         store.dev_mode_init()
 
     data_loading_server("data_loading", shared_store=store, app_session=session)
-    data_cleaning_server("data_cleaning", shared_store=store)
-    feature_engineering_server("feature_engineering", shared_store=store)
+    data_cleaning_server("data_cleaning", shared_store=store, app_session=session)
+    feature_engineering_server("feature_engineering", shared_store=store, app_session=session)
     eda_server("eda", shared_store=store)
 
 
