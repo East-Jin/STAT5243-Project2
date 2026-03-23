@@ -25,7 +25,11 @@ def data_cleaning_ui():
             # Step 1: Missing-value standardization
             ui.h5("Step 1. Standardize Missing Values"),
             ui.p("Convert empty strings / NA-like tokens to true missing values."),
-            ui.input_checkbox("strip_text_before_missing", "Trim whitespace before missing-value check", value=True),
+            ui.input_checkbox(
+                "strip_text_before_missing",
+                "Trim whitespace before missing-value check",
+                value=True,
+            ),
             ui.input_checkbox_group(
                 "missing_tokens",
                 "Tokens to treat as missing",
@@ -106,6 +110,11 @@ def data_cleaning_ui():
             ui.input_checkbox("trim_text", "Trim whitespace in text columns", value=True),
             ui.input_checkbox("lowercase_text", "Convert text columns to lowercase", value=False),
             ui.input_checkbox("try_numeric_conversion", "Try converting text columns to numeric", value=True),
+            ui.input_checkbox(
+                "standardize_gender",
+                "Standardize gender values (male→M, female→F)",
+                value=True,
+            ),
             ui.input_action_button(
                 "apply_standardization",
                 "Apply Format Standardization",
@@ -156,7 +165,11 @@ def data_cleaning_ui():
             ui.input_select(
                 "outlier_method",
                 "Outlier method",
-                choices={"none": "None", "iqr_remove": "IQR: Remove rows", "iqr_cap": "IQR: Cap values"},
+                choices={
+                    "none": "None",
+                    "iqr_remove": "IQR: Remove rows",
+                    "iqr_cap": "IQR: Cap values",
+                },
                 selected="none",
             ),
             ui.input_action_button(
@@ -167,7 +180,11 @@ def data_cleaning_ui():
             ui.hr(),
 
             # Final save
-            ui.input_action_button("apply_cleaning", "Apply & Save", class_="btn-primary w-100"),
+            ui.input_action_button(
+                "apply_cleaning",
+                "Apply & Save",
+                class_="btn-primary w-100",
+            ),
             width=360,
         ),
 
@@ -187,12 +204,12 @@ def data_cleaning_ui():
             ),
             ui.nav_panel(
                 "Distributions",
-                ui.input_select("dist_col", "Select numeric column", choices=[]),
+                ui.input_select("dist_col", "Select numeric column", choices={}),
                 ui.output_plot("distribution_plot"),
             ),
             ui.nav_panel(
                 "Outliers",
-                ui.input_select("outlier_col", "Select numeric column", choices=[]),
+                ui.input_select("outlier_col", "Select numeric column", choices={}),
                 ui.output_plot("outlier_plot"),
             ),
             ui.nav_panel(
@@ -387,6 +404,17 @@ def data_cleaning_server(input: Inputs, output: Outputs, session: Session, share
             if input.lowercase_text():
                 df[col] = df[col].apply(lambda x: x.lower() if isinstance(x, str) else x)
 
+            if input.standardize_gender():
+                df[col] = df[col].apply(
+                    lambda x: "M"
+                    if isinstance(x, str) and x.strip().lower() == "male"
+                    else (
+                        "F"
+                        if isinstance(x, str) and x.strip().lower() == "female"
+                        else x
+                    )
+                )
+
         if input.try_numeric_conversion():
             object_cols = df.select_dtypes(include=["object"]).columns.tolist()
             for col in object_cols:
@@ -550,7 +578,7 @@ def data_cleaning_server(input: Inputs, output: Outputs, session: Session, share
     def missing_summary():
         df = working_copy()
         if df is None:
-            return ui.p("\u2014", class_="text-muted")
+            return ui.p("—", class_="text-muted")
 
         missing = df.isnull().sum()
         total = int(missing.sum())
@@ -572,7 +600,7 @@ def data_cleaning_server(input: Inputs, output: Outputs, session: Session, share
     def duplicate_summary():
         df = working_copy()
         if df is None:
-            return ui.p("\u2014", class_="text-muted")
+            return ui.p("—", class_="text-muted")
 
         dup_count = int(df.duplicated().sum())
         dup_pct = dup_count / len(df) if len(df) > 0 else 0
