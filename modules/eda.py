@@ -29,14 +29,14 @@ def eda_ui():
             # =================================================================
             ui.h5("1. Filter Data"),
 
-            # 数值型变量过滤器
+            # Numeric Variable Filter
             ui.input_select("filter_num_col", "Numeric Filter:", choices=["None"]),
             ui.panel_conditional(
                 "input.filter_num_col !== 'None'",
                 ui.input_slider("filter_num_val", "Select Range", min=0, max=100, value=[0, 100])
             ),
 
-            # 类别型变量过滤器
+            # Category-type variable filter
             ui.input_select("filter_cat_col", "Categorical Filter:", choices=["None"]),
             ui.panel_conditional(
                 "input.filter_cat_col !== 'None'",
@@ -100,7 +100,7 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
     # =========================================================================
     @reactive.effect
     def update_all_dropdowns():
-        """当数据加载时，将所有的列名分配给对应的下拉菜单"""
+        """When the data is loaded, assign all column names to their corresponding drop-down menus"""
         df = base_data()
         if df is None or df.empty: return
 
@@ -117,7 +117,7 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
 
     @reactive.effect
     def update_slider_range():
-        """当用户选择了数值过滤列时，更新滑块的最大最小值"""
+        """When the user selects a column for numerical filtering, update the maximum and minimum values of the slider"""
         df = base_data()
         col = input.filter_num_col()
         if df is not None and col != "None" and col in df.columns:
@@ -127,7 +127,7 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
 
     @reactive.effect
     def update_category_choices():
-        """当用户选择了类别过滤列时，更新多选框的选项"""
+        """When the user selects the category filter column, update the options in the checkbox"""
         df = base_data()
         col = input.filter_cat_col()
         if df is not None and col != "None" and col in df.columns:
@@ -142,16 +142,16 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
         df = base_data()
         if df is None or df.empty: return None
 
-        # 1. 应用数值过滤器
+        # 1. Apply a numerical filter
         num_col = input.filter_num_col()
         if num_col != "None" and num_col in df.columns:
             f_range = input.filter_num_val()
             cmin, cmax = df[num_col].min(), df[num_col].max()
-            # 容错机制：防止 UI 更新滑块的延迟导致数据被误清空
+            # Fault-tolerance mechanism: Prevents data from being accidentally cleared due to delays in UI updates
             if not (f_range[1] < cmin or f_range[0] > cmax):
                 df = df[(df[num_col] >= f_range[0]) & (df[num_col] <= f_range[1])]
 
-        # 2. 应用类别过滤器
+        # 2. Apply category filter
         cat_col = input.filter_cat_col()
         if cat_col != "None" and cat_col in df.columns:
             f_vals = input.filter_cat_val()
@@ -159,7 +159,7 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
                 if len(f_vals) > 0:
                     df = df[df[cat_col].isin(list(f_vals))]
                 else:
-                    df = df.iloc[0:0] # 如果全不选，返回空数据
+                    df = df.iloc[0:0] # If none are selected, return an empty dataset
 
         return df
 
