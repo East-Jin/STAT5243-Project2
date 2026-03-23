@@ -175,8 +175,6 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
     # =========================================================================
 
     working_copy: reactive.value[pd.DataFrame | None] = reactive.value(None)
-    preview_df: reactive.value[pd.DataFrame | None] = reactive.value(None)
-    preview_meta: reactive.value[dict] = reactive.value({})
     feature_history_store: reactive.value[list[str]] = reactive.value([])
     status_store: reactive.value[str] = reactive.value("")
 
@@ -185,8 +183,6 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
         df = shared_store.cleaned_data()
         if df is not None:
             working_copy.set(df.copy())
-            preview_df.set(None)
-            preview_meta.set({})
             feature_history_store.set([])
             shared_store.engineered_data.set(None)
             status_store.set("Working copy synced from cleaned data.")
@@ -197,8 +193,6 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
         df = shared_store.cleaned_data()
         if df is not None:
             working_copy.set(df.copy())
-            preview_df.set(None)
-            preview_meta.set({})
             feature_history_store.set([])
             shared_store.engineered_data.set(df.copy())
             status_store.set("Reset complete. Working data restored to cleaned data.")
@@ -383,32 +377,32 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
                     return None, {}
 
                 if transform == "log":
-                    new_col_name = f"{col}_log"
+                    new_col_name = _safe_feature_name(f"{col}_log")
                     result[new_col_name] = np.log(result[col].clip(lower=1e-10))
                 elif transform == "log1p":
-                    new_col_name = f"{col}_log1p"
+                    new_col_name = _safe_feature_name(f"{col}_log1p")
                     result[new_col_name] = np.log1p(result[col].clip(lower=0))
                 elif transform == "sqrt":
-                    new_col_name = f"{col}_sqrt"
+                    new_col_name = _safe_feature_name(f"{col}_sqrt")
                     result[new_col_name] = np.sqrt(result[col].clip(lower=0))
                 elif transform == "square":
-                    new_col_name = f"{col}_square"
+                    new_col_name = _safe_feature_name(f"{col}_square")
                     result[new_col_name] = np.square(result[col])
                 elif transform == "zscore":
-                    new_col_name = f"{col}_zscore"
+                    new_col_name = _safe_feature_name(f"{col}_zscore")
                     std = result[col].std()
                     if std == 0 or pd.isna(std):
                         return None, {}
                     result[new_col_name] = (result[col] - result[col].mean()) / std
                 elif transform == "minmax":
-                    new_col_name = f"{col}_minmax"
+                    new_col_name = _safe_feature_name(f"{col}_minmax")
                     col_min, col_max = result[col].min(), result[col].max()
                     if col_min == col_max:
                         return None, {}
                     result[new_col_name] = (result[col] - col_min) / (col_max - col_min)
                 elif transform == "binning":
                     bins = input.num_bins()
-                    new_col_name = f"{col}_binned"
+                    new_col_name = _safe_feature_name(f"{col}_binned")
                     result[new_col_name] = pd.cut(result[col], bins=bins, include_lowest=True).astype(str)
                 else:
                     return None, {}
@@ -428,7 +422,7 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
                 suffix = {"year": "year", "month": "month", "day": "day", "dayofweek": "dow",
                            "hour": "hour", "minute": "minute", "quarter": "quarter",
                            "is_weekend": "weekend", "dayofyear": "doy"}.get(part, part)
-                new_col_name = f"{col}_{suffix}"
+                new_col_name = _safe_feature_name(f"{col}_{suffix}")
 
                 part_map = {
                     "year": ts.dt.year, "month": ts.dt.month, "day": ts.dt.day,
@@ -449,13 +443,13 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
                     return None, {}
 
                 if combine_type == "add":
-                    new_col_name = f"{col1}_plus_{col2}"
+                    new_col_name = _safe_feature_name(f"{col1}_plus_{col2}")
                     result[new_col_name] = result[col1] + result[col2]
                 elif combine_type == "multiply":
-                    new_col_name = f"{col1}_times_{col2}"
+                    new_col_name = _safe_feature_name(f"{col1}_times_{col2}")
                     result[new_col_name] = result[col1] * result[col2]
                 elif combine_type == "ratio":
-                    new_col_name = f"{col1}_div_{col2}"
+                    new_col_name = _safe_feature_name(f"{col1}_div_{col2}")
                     denominator = result[col2].replace(0, np.nan)
                     result[new_col_name] = result[col1] / denominator
                 else:
@@ -467,189 +461,12 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
             return None, {}
 
     @reactive.effect
-    @reactive.event(input.preview_transform)
-    def _preview():
-        df = working_copy()
-        if df is None:
-            status_store.set("No data available.")
-            return
-
-        result = df.copy()
-
-        try:
-            if input.operation_type() == "single":
-                col = input.target_column()
-                transform = input.transform_type()
-
-                if col not in result.columns:
-                    status_store.set("Selected column not found.")
-                    return
-
-                if transform == "log":
-                    new_col_name = _safe_feature_name(f"{col}_log")
-                    result[new_col_name] = np.log(result[col].clip(lower=1e-10))
-
-                elif transform == "log1p":
-                    new_col_name = _safe_feature_name(f"{col}_log1p")
-                    result[new_col_name] = np.log1p(result[col].clip(lower=0))
-
-                elif transform == "sqrt":
-                    new_col_name = _safe_feature_name(f"{col}_sqrt")
-                    result[new_col_name] = np.sqrt(result[col].clip(lower=0))
-
-                elif transform == "square":
-                    new_col_name = _safe_feature_name(f"{col}_square")
-                    result[new_col_name] = np.square(result[col])
-
-                elif transform == "zscore":
-                    new_col_name = _safe_feature_name(f"{col}_zscore")
-                    std = result[col].std()
-                    if std == 0 or pd.isna(std):
-                        status_store.set(f"Cannot standardize '{col}' because its standard deviation is 0.")
-                        return
-                    result[new_col_name] = (result[col] - result[col].mean()) / std
-
-                elif transform == "minmax":
-                    new_col_name = _safe_feature_name(f"{col}_minmax")
-                    col_min = result[col].min()
-                    col_max = result[col].max()
-                    if col_min == col_max:
-                        status_store.set(f"Cannot min-max scale '{col}' because all values are identical.")
-                        return
-                    result[new_col_name] = (result[col] - col_min) / (col_max - col_min)
-
-                elif transform == "binning":
-                    bins = input.num_bins()
-                    new_col_name = _safe_feature_name(f"{col}_binned")
-                    result[new_col_name] = pd.cut(result[col], bins=bins, include_lowest=True).astype(str)
-
-                else:
-                    status_store.set("Unknown transformation selected.")
-                    return
-
-                preview_meta.set(
-                    {
-                        "mode": "single",
-                        "source_col": col,
-                        "new_col": new_col_name,
-                    }
-                )
-                preview_df.set(result)
-                status_store.set(f"Preview created: {new_col_name}")
-
-            elif input.operation_type() == "datetime":
-                col = input.datetime_column()
-                part = input.datetime_part()
-
-                if col not in result.columns:
-                    status_store.set("Selected date/time column not found.")
-                    return
-
-                ts = _series_as_datetime(result[col])
-                valid = ts.notna().sum()
-                if valid == 0:
-                    status_store.set(f"Could not parse '{col}' as dates. Check values or use a datetime column.")
-                    return
-                parse_note = ""
-                if valid < len(ts) * 0.5:
-                    parse_note = f" — parsed {valid}/{len(ts)} rows as dates."
-
-                suffix = {
-                    "year": "year",
-                    "month": "month",
-                    "day": "day",
-                    "dayofweek": "dow",
-                    "hour": "hour",
-                    "minute": "minute",
-                    "quarter": "quarter",
-                    "is_weekend": "weekend",
-                    "dayofyear": "doy",
-                }.get(part, part)
-                default_name = f"{col}_{suffix}"
-                new_col_name = _safe_feature_name(default_name)
-
-                if part == "year":
-                    new_vals = ts.dt.year
-                elif part == "month":
-                    new_vals = ts.dt.month
-                elif part == "day":
-                    new_vals = ts.dt.day
-                elif part == "dayofweek":
-                    new_vals = ts.dt.dayofweek
-                elif part == "hour":
-                    new_vals = ts.dt.hour
-                elif part == "minute":
-                    new_vals = ts.dt.minute
-                elif part == "quarter":
-                    new_vals = ts.dt.quarter
-                elif part == "is_weekend":
-                    new_vals = ts.dt.dayofweek.isin([5, 6]).astype(int)
-                elif part == "dayofyear":
-                    new_vals = ts.dt.dayofyear
-                else:
-                    status_store.set("Unknown date/time part selected.")
-                    return
-
-                result[new_col_name] = new_vals
-                preview_meta.set(
-                    {
-                        "mode": "datetime",
-                        "source_col": col,
-                        "new_col": new_col_name,
-                        "datetime_part": part,
-                    }
-                )
-                preview_df.set(result)
-                status_store.set(f"Preview created: {new_col_name}{parse_note}")
-
-            else:
-                col1 = input.first_column()
-                col2 = input.second_column()
-                combine_type = input.combine_type()
-
-                if col1 not in result.columns or col2 not in result.columns:
-                    status_store.set("Selected columns not found.")
-                    return
-
-                if combine_type == "add":
-                    new_col_name = _safe_feature_name(f"{col1}_plus_{col2}")
-                    result[new_col_name] = result[col1] + result[col2]
-
-                elif combine_type == "multiply":
-                    new_col_name = _safe_feature_name(f"{col1}_times_{col2}")
-                    result[new_col_name] = result[col1] * result[col2]
-
-                elif combine_type == "ratio":
-                    new_col_name = _safe_feature_name(f"{col1}_div_{col2}")
-                    denominator = result[col2].replace(0, np.nan)
-                    result[new_col_name] = result[col1] / denominator
-
-                else:
-                    status_store.set("Unknown combination selected.")
-                    return
-
-                preview_meta.set(
-                    {
-                        "mode": "combine",
-                        "source_col": col1,
-                        "second_col": col2,
-                        "new_col": new_col_name,
-                    }
-                )
-                preview_df.set(result)
-                status_store.set(f"Preview created: {new_col_name}")
-
-        except Exception as e:
-            status_store.set(f"Preview failed: {str(e)}")
-
-    @reactive.effect
     @reactive.event(input.apply_transform)
     def _apply():
-        df = preview_df()
-        meta = preview_meta()
+        df, meta = live_preview()
 
         if df is None or not meta:
-            status_store.set("Nothing to apply. Please create a preview first.")
+            status_store.set("Nothing to apply. Please select a column and transformation.")
             return
 
         working_copy.set(df.copy())
@@ -679,7 +496,7 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
             cols_to_show = [meta.get("source_col"), meta.get("new_col")]
             if meta.get("mode") == "combine":
                 cols_to_show = [meta.get("source_col"), meta.get("second_col"), meta.get("new_col")]
-            cols_to_show = [c for c in cols_to_show if c in df.columns]
+            cols_to_show = list(dict.fromkeys(c for c in cols_to_show if c in df.columns))
             return render.DataGrid(df[cols_to_show], height="100%")
         return pd.DataFrame()
 
