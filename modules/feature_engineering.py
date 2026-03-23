@@ -104,7 +104,12 @@ def feature_engineering_ui():
 
             ui.input_action_button(
                 "apply_transform",
-                "Apply & Save",
+                "Apply",
+                class_="btn-outline-primary w-100 mb-2",
+            ),
+            ui.input_action_button(
+                "save_to_pipeline",
+                "Save to Pipeline",
                 class_="btn-primary w-100 mb-2",
             ),
             ui.input_action_button(
@@ -115,7 +120,7 @@ def feature_engineering_ui():
 
             ui.hr(),
             ui.p(
-                "Tip: The preview updates live as you change selections. Click Apply & Save to keep the feature.",
+                "Tip: Apply adds the feature to the working table. Save pushes it to the pipeline for EDA.",
                 class_="text-muted",
                 style="font-size: 0.9em;",
             ),
@@ -151,7 +156,23 @@ def feature_engineering_ui():
                 ui.output_data_frame("current_data"),
             ),
         ),
-        ui.output_ui("next_step_btn"),
+        ui.div(
+            ui.div(
+                ui.input_action_button(
+                    "undo_btn",
+                    "↩ Undo Last Apply",
+                    class_="btn-outline-warning",
+                ),
+            ),
+            ui.div(
+                ui.input_action_button(
+                    "go_to_eda",
+                    "Proceed to EDA →",
+                    class_="btn-success btn-lg",
+                ),
+            ),
+            class_="d-flex justify-content-between align-items-center mt-2",
+        ),
     )
 
 
@@ -177,6 +198,15 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
     working_copy: reactive.value[pd.DataFrame | None] = reactive.value(None)
     feature_history_store: reactive.value[list[str]] = reactive.value([])
     status_store: reactive.value[str] = reactive.value("")
+    undo_history: reactive.value[list] = reactive.value([])
+
+    def _push_history(df: pd.DataFrame):
+        """Save current state before an apply modifies it."""
+        stack = undo_history().copy()
+        stack.append(df.copy())
+        if len(stack) > 20:
+            stack = stack[-20:]
+        undo_history.set(stack)
 
     @reactive.effect
     def _sync_cleaned():
@@ -184,6 +214,7 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
         if df is not None:
             working_copy.set(df.copy())
             feature_history_store.set([])
+            undo_history.set([])
             shared_store.engineered_data.set(None)
             status_store.set("Working copy synced from cleaned data.")
 
@@ -194,6 +225,7 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
         if df is not None:
             working_copy.set(df.copy())
             feature_history_store.set([])
+            undo_history.set([])
             shared_store.engineered_data.set(df.copy())
             status_store.set("Reset complete. Working data restored to cleaned data.")
 
@@ -469,8 +501,11 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
             status_store.set("Nothing to apply. Please select a column and transformation.")
             return
 
+        current = working_copy()
+        if current is not None:
+            _push_history(current)
+
         working_copy.set(df.copy())
-        shared_store.engineered_data.set(df.copy())
 
         history = feature_history_store().copy()
         new_feature = meta.get("new_col")
@@ -478,7 +513,40 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
             history.append(new_feature)
             feature_history_store.set(history)
 
-        status_store.set(f"Applied and saved to engineered data: {new_feature}")
+        status_store.set(f"Applied: {new_feature}. Click Save to push to pipeline.")
+
+    @reactive.effect
+    @reactive.event(input.save_to_pipeline)
+    def _save():
+        df = working_copy()
+        if df is None:
+            status_store.set("No data to save.")
+            return
+        shared_store.engineered_data.set(df.copy())
+        status_store.set(f"Saved to pipeline: {df.shape[0]} rows, {df.shape[1]} columns.")
+        ui.notification_show("Engineered data saved to pipeline.", type="message")
+
+    @reactive.effect
+    @reactive.event(input.undo_btn)
+    def _undo():
+        stack = undo_history().copy()
+        if not stack:
+            ui.notification_show("Nothing to undo.", type="warning")
+            return
+        prev = stack.pop()
+        undo_history.set(stack)
+        working_copy.set(prev)
+
+        # Remove last feature from history
+        history = feature_history_store().copy()
+        if history:
+            history.pop()
+            feature_history_store.set(history)
+
+        msg = f"Undo successful. ({len(stack)} step(s) remaining)"
+        if shared_store.engineered_data() is not None:
+            msg += " ⚠ Saved pipeline data is now out of sync. Click Save to update."
+        ui.notification_show(msg, type="warning" if shared_store.engineered_data() is not None else "message")
 
     @render.ui
     def status_message():
@@ -575,21 +643,6 @@ def feature_engineering_server(input: Inputs, output: Outputs, session: Session,
         if not history:
             return ui.p("No engineered features have been saved yet.", class_="text-muted")
         return ui.tags.ul([ui.tags.li(name) for name in history])
-
-    # -- Proceed button --
-
-    @render.ui
-    def next_step_btn():
-        if shared_store.engineered_data() is None:
-            return ui.TagList()
-        return ui.div(
-            ui.input_action_button(
-                "go_to_eda",
-                "Proceed to EDA \u2192",
-                class_="btn-success btn-lg mt-3",
-            ),
-            class_="d-flex justify-content-end",
-        )
 
     @reactive.effect
     @reactive.event(input.go_to_eda)

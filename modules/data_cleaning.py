@@ -200,6 +200,7 @@ def data_cleaning_ui():
                 },
                 selected="none",
             ),
+            ui.output_ui("scaling_exclude_ui"),
             ui.input_action_button(
                 "apply_scaling",
                 "Apply Scaling",
@@ -915,6 +916,21 @@ def data_cleaning_server(input: Inputs, output: Outputs, session: Session, share
     # =========================================================================
     # Step 9: Scale numeric features
     # =========================================================================
+    @render.ui
+    def scaling_exclude_ui():
+        df = working_copy()
+        if df is None:
+            return ui.TagList()
+        num_cols = _get_numeric_cols(df)
+        if not num_cols:
+            return ui.TagList()
+        return ui.input_selectize(
+            "scaling_exclude_cols",
+            "Exclude columns (e.g. target/label)",
+            choices=num_cols,
+            multiple=True,
+        )
+
     @reactive.effect
     @reactive.event(input.apply_scaling)
     def _apply_scaling():
@@ -925,19 +941,24 @@ def data_cleaning_server(input: Inputs, output: Outputs, session: Session, share
 
         method = input.scaling_method()
         if method == "none":
-            ui.notification_show("Step 8 skipped: no scaling method selected.", type="warning")
+            ui.notification_show("Step 9 skipped: no scaling method selected.", type="warning")
             return
 
         df = df.copy()
         numeric_cols = _get_numeric_cols(df)
 
         if not numeric_cols:
-            ui.notification_show("Step 8 skipped: no numeric columns available.", type="warning")
+            ui.notification_show("Step 9 skipped: no numeric columns available.", type="warning")
             return
 
-        cols_to_scale = [col for col in numeric_cols if not df[col].isna().any()]
+        try:
+            exclude = list(input.scaling_exclude_cols())
+        except Exception:
+            exclude = []
+
+        cols_to_scale = [col for col in numeric_cols if col not in exclude and not df[col].isna().any()]
         if not cols_to_scale:
-            ui.notification_show("Step 8 skipped: all numeric columns have missing values.", type="warning")
+            ui.notification_show("Step 9 skipped: all numeric columns have missing values or excluded.", type="warning")
             return
 
         if method == "standard":
@@ -947,7 +968,7 @@ def data_cleaning_server(input: Inputs, output: Outputs, session: Session, share
 
         df[cols_to_scale] = scaler.fit_transform(df[cols_to_scale])
         working_copy.set(df)
-        ui.notification_show(f"Step 8 done: applied {method} scaling to {len(cols_to_scale)} columns.", type="message")
+        ui.notification_show(f"Step 9 done: applied {method} scaling to {len(cols_to_scale)} columns.", type="message")
 
     # =========================================================================
     # Step 10: Encode categorical features
@@ -962,7 +983,7 @@ def data_cleaning_server(input: Inputs, output: Outputs, session: Session, share
 
         method = input.encoding_method()
         if method == "none":
-            ui.notification_show("Step 8 skipped: no encoding method selected.", type="warning")
+            ui.notification_show("Step 10 skipped: no encoding method selected.", type="warning")
             return
 
         df = df.copy()
@@ -970,7 +991,7 @@ def data_cleaning_server(input: Inputs, output: Outputs, session: Session, share
         cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
 
         if not cat_cols:
-            ui.notification_show("Step 8 skipped: no categorical columns found.", type="warning")
+            ui.notification_show("Step 10 skipped: no categorical columns found.", type="warning")
             return
 
         if method == "onehot":
@@ -980,7 +1001,7 @@ def data_cleaning_server(input: Inputs, output: Outputs, session: Session, share
                 df[col] = df[col].astype("category").cat.codes
 
         working_copy.set(df)
-        ui.notification_show(f"Step 8 done: applied {method} encoding to {len(cat_cols)} columns.", type="message")
+        ui.notification_show(f"Step 10 done: applied {method} encoding to {len(cat_cols)} columns.", type="message")
 
     # =========================================================================
     # Step 8: Handle outliers

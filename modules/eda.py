@@ -49,11 +49,27 @@ def eda_ui():
             # === 2. PLOT SETTINGS UI ===
             # =================================================================
             ui.h5("2. Plot Settings"),
-            ui.input_select("plot_type", "Select Plot Type", choices=["Scatter Plot", "Bar Chart (Average)", "Box Plot"]),
+            ui.input_select("plot_type", "Select Plot Type", choices=[
+                "Scatter Plot", "Bar Chart (Average)", "Box Plot",
+                "Histogram", "Violin Plot", "Pie Chart",
+            ]),
             ui.input_select("x_var", "X Variable", choices=["Waiting for data..."]),
-            ui.input_select("y_var", "Y Variable", choices=["Waiting for data..."]),
-            ui.input_select("color_var", "Color / Group By (Optional)", choices=["None"]),
-            ui.input_checkbox("add_trendline", "Add Trendline (Scatter Plot only)", value=False),
+            ui.panel_conditional(
+                "input.plot_type !== 'Histogram' && input.plot_type !== 'Pie Chart'",
+                ui.input_select("y_var", "Y Variable", choices=["Waiting for data..."]),
+            ),
+            ui.panel_conditional(
+                "input.plot_type !== 'Pie Chart'",
+                ui.input_select("color_var", "Color / Group By (Optional)", choices=["None"]),
+            ),
+            ui.panel_conditional(
+                "input.plot_type === 'Scatter Plot'",
+                ui.input_checkbox("add_trendline", "Add Trendline", value=False),
+            ),
+            ui.panel_conditional(
+                "input.plot_type === 'Histogram'",
+                ui.input_slider("hist_bins", "Number of Bins", min=5, max=100, value=20),
+            ),
 
             ui.hr(),
             ui.p("💡 Tip: Download plots using the camera icon in the top right corner.", class_="text-muted", style="font-size: 0.85em;"),
@@ -65,7 +81,19 @@ def eda_ui():
         ui.output_ui("guard_message"),
         ui.navset_card_tab(
             ui.nav_panel("Interactive Plot", output_widget("interactive_plot")),
-            ui.nav_panel("Correlation Heatmap", output_widget("heatmap_plot")),
+            ui.nav_panel(
+                "Pair Plot",
+                ui.input_selectize("pair_plot_cols", "Select columns:", choices=[], multiple=True, width="100%"),
+                output_widget("pair_plot"),
+            ),
+            ui.nav_panel(
+                "Correlation Heatmap",
+                ui.div(
+                    ui.input_numeric("heatmap_max_cols", "Max columns:", value=30, min=2, max=100, width="150px"),
+                    style="display: flex; justify-content: flex-end; margin-bottom: 4px;",
+                ),
+                output_widget("heatmap_plot"),
+            ),
             ui.nav_panel("Summary Statistics", ui.output_data_frame("summary_table")),
         ),
     )
@@ -114,6 +142,29 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
         ui.update_select("x_var", choices=all_cols)
         ui.update_select("y_var", choices=num_cols if num_cols else all_cols)
         ui.update_select("color_var", choices=["None"] + all_cols)
+        ui.update_selectize("pair_plot_cols", choices=num_cols, selected=num_cols[:4])
+
+    @reactive.effect
+    def update_plot_type_choices():
+        """Update x/y variable choices based on the selected plot type."""
+        df = base_data()
+        if df is None or df.empty:
+            return
+
+        all_cols = df.columns.tolist()
+        num_cols = df.select_dtypes(include="number").columns.tolist()
+        cat_cols = df.select_dtypes(exclude="number").columns.tolist()
+        plot_type = input.plot_type()
+
+        if plot_type in ["Violin Plot", "Pie Chart"]:
+            x_choices = cat_cols if cat_cols else all_cols
+        else:
+            x_choices = all_cols
+
+        ui.update_select("x_var", choices=x_choices)
+
+        if plot_type in ["Scatter Plot", "Bar Chart (Average)", "Box Plot", "Violin Plot"]:
+            ui.update_select("y_var", choices=num_cols if num_cols else all_cols)
 
     @reactive.effect
     def update_slider_range():
@@ -173,16 +224,49 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
             return px.scatter(title="No data available or all data filtered out.")
 
         x_col = input.x_var()
-        y_col = input.y_var()
         plot_type = input.plot_type()
+
+        if x_col == "Waiting for data..." or x_col not in df.columns:
+            return px.scatter(title="Please select valid X variable.")
+
+        # Plots that only need X
+        if plot_type == "Histogram":
+            color_col = input.color_var()
+            c_val = None if color_col == "None" or color_col not in df.columns else color_col
+            if pd.api.types.is_numeric_dtype(df[x_col]):
+                fig = px.histogram(
+                    df, x=x_col, color=c_val,
+                    nbins=input.hist_bins(),
+                    title=f"Histogram: {x_col}",
+                )
+            else:
+                counts = df[x_col].value_counts(dropna=False).reset_index()
+                counts.columns = [x_col, "count"]
+                fig = px.bar(counts, x=x_col, y="count", title=f"Value Counts: {x_col}")
+            fig.update_layout(template="plotly_white")
+            return fig
+
+        if plot_type == "Pie Chart":
+            counts = df[x_col].value_counts(dropna=False)
+            if len(counts) > 20:
+                top = counts.head(19)
+                top["Other"] = counts.iloc[19:].sum()
+                counts = top
+            pie_df = counts.reset_index()
+            pie_df.columns = [x_col, "count"]
+            fig = px.pie(pie_df, names=x_col, values="count", title=f"Pie Chart: {x_col}")
+            fig.update_layout(template="plotly_white")
+            return fig
+
+        # Plots that need X + Y
+        y_col = input.y_var()
+        if y_col not in df.columns:
+            return px.scatter(title="Please select a valid Y variable.")
+
         color_col = input.color_var()
-
-        if x_col == "Waiting for data..." or x_col not in df.columns or y_col not in df.columns:
-            return px.scatter(title="Please select valid X and Y variables.")
-
         c_val = None if color_col == "None" or color_col not in df.columns else color_col
 
-        if plot_type in ["Bar Chart (Average)", "Box Plot"] and not pd.api.types.is_numeric_dtype(df[y_col]):
+        if plot_type in ["Bar Chart (Average)", "Box Plot", "Violin Plot"] and not pd.api.types.is_numeric_dtype(df[y_col]):
             return px.scatter(title=f"Error: Y Variable '{y_col}' must be numeric for {plot_type}.")
 
         if plot_type == "Scatter Plot":
@@ -205,8 +289,38 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
                 df, x=x_col, y=y_col, color=c_val,
                 title=f"Box Plot: Distribution of {y_col} across {x_col}"
             )
+        elif plot_type == "Violin Plot":
+            fig = px.violin(
+                df, x=x_col, y=y_col, color=c_val,
+                box=True, points="outliers",
+                title=f"Violin Plot: {y_col} by {x_col}"
+            )
 
         fig.update_layout(template="plotly_white")
+        return fig
+
+    @render_widget
+    def pair_plot():
+        df = filtered_data()
+        if df is None or df.empty:
+            return px.scatter(title="No data available.")
+
+        selected = list(input.pair_plot_cols())
+        cols = [c for c in selected if c in df.columns]
+
+        if len(cols) < 2:
+            return px.scatter(title="Select at least 2 numeric columns.")
+
+        n = len(cols)
+        size = max(600, n * 150)
+
+        fig = px.scatter_matrix(
+            df, dimensions=cols,
+            title=f"Pair Plot ({n} columns)",
+            opacity=0.5,
+        )
+        fig.update_traces(diagonal_visible=True, showupperhalf=False)
+        fig.update_layout(template="plotly_white", height=max(700, n * 200), autosize=True)
         return fig
 
     @render_widget
@@ -219,13 +333,21 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
         if numeric_df.empty or numeric_df.shape[1] < 2:
             return px.imshow([[0]], title="Not enough numeric columns for heatmap")
 
+        MAX_COLS = input.heatmap_max_cols() or 30
+        if numeric_df.shape[1] > MAX_COLS:
+            total = numeric_df.shape[1]
+            numeric_df = numeric_df.iloc[:, :MAX_COLS]
+            title = f"Correlation Matrix (first {MAX_COLS} of {total} numeric columns)"
+        else:
+            title = "Correlation Matrix of Numeric Variables (Filtered)"
+
         corr_matrix = numeric_df.corr().round(2)
         fig = px.imshow(
             corr_matrix,
-            text_auto=True,
+            text_auto=numeric_df.shape[1] <= 20,
             aspect="auto",
             color_continuous_scale="RdBu_r",
-            title="Correlation Matrix of Numeric Variables (Filtered)"
+            title=title,
         )
         fig.update_layout(template="plotly_white")
         return fig
