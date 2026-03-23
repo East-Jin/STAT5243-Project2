@@ -937,13 +937,13 @@ def data_cleaning_server(input: Inputs, output: Outputs, session: Session, share
         df = working_copy()
         if df is None:
             return
-        _push_history(df)
 
         method = input.scaling_method()
         if method == "none":
             ui.notification_show("Step 9 skipped: no scaling method selected.", type="warning")
             return
 
+        _push_history(df)
         df = df.copy()
         numeric_cols = _get_numeric_cols(df)
 
@@ -979,12 +979,13 @@ def data_cleaning_server(input: Inputs, output: Outputs, session: Session, share
         df = working_copy()
         if df is None:
             return
-        _push_history(df)
 
         method = input.encoding_method()
         if method == "none":
             ui.notification_show("Step 10 skipped: no encoding method selected.", type="warning")
             return
+
+        _push_history(df)
 
         df = df.copy()
         # Exclude bool/boolean columns — they are already binary
@@ -1039,19 +1040,19 @@ def data_cleaning_server(input: Inputs, output: Outputs, session: Session, share
         df = working_copy()
         if df is None:
             return
-        _push_history(df)
 
         method = input.outlier_method()
         if method == "none":
             ui.notification_show("Step 8 skipped: no outlier method selected.", type="warning")
             return
 
-        df = df.copy()
         numeric_cols = _get_numeric_cols(df)
-
         if not numeric_cols:
             ui.notification_show("Step 8 skipped: no numeric columns available.", type="warning")
             return
+
+        _push_history(df)
+        df = df.copy()
 
         before_rows = len(df)
 

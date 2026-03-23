@@ -139,8 +139,6 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
         ui.update_select("filter_num_col", choices=["None"] + num_cols)
         ui.update_select("filter_cat_col", choices=["None"] + cat_cols)
 
-        ui.update_select("x_var", choices=all_cols)
-        ui.update_select("y_var", choices=num_cols if num_cols else all_cols)
         ui.update_select("color_var", choices=["None"] + all_cols)
         ui.update_selectize("pair_plot_cols", choices=num_cols, selected=num_cols[:4])
 
@@ -295,6 +293,8 @@ def eda_server(input: Inputs, output: Outputs, session: Session, shared_store):
                 box=True, points="outliers",
                 title=f"Violin Plot: {y_col} by {x_col}"
             )
+        else:
+            return px.scatter(title=f"Unknown plot type: {plot_type}")
 
         fig.update_layout(template="plotly_white")
         return fig
