@@ -1,44 +1,33 @@
-# Architecture — Data Explorer (STAT5243 Project 2)
+# Architecture — Data Explorer (STAT 5243 Project 2)
 
-## Project Overview
+## Overview
 
-This is a Python Shiny web application for interactive data preprocessing and exploratory data analysis. It covers the 6 graded components from the project rubric:
-
-| # | Component | Points | Status |
-|---|-----------|--------|--------|
-| 1 | Loading Datasets | 8 | 7 formats (CSV, TSV, Excel, JSON, Parquet, RDS, XML) + Titanic/Ames built-in + column summary |
-| 2 | Data Cleaning & Preprocessing | 8 | Skeleton + working drop-NaN example |
-| 3 | Feature Engineering | 8 | Skeleton + working log-transform example |
-| 4 | Exploratory Data Analysis | 8 | Skeleton + working plotly histogram |
-| 5 | UI / UX | 8 | Basic navbar layout (to be polished together) |
-| 6 | Interactivity & Responsiveness | 8 | Reactive framework in place |
+Data Explorer is a Python Shiny (Core mode) web application with a four-stage reactive pipeline for data preprocessing and exploratory data analysis. A fifth tab provides an in-app User Guide.
 
 ## Architecture Diagram
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                     app.py                               │
-│  ┌──────────────────────────────────────────────────┐    │
-│  │           ui.page_navbar (top tabs)               │    │
-│  │  ┌──────────┬──────────┬──────────┬──────────┐   │    │
-│  │  │  Data    │  Data    │ Feature  │   EDA    │   │    │
-│  │  │ Loading  │ Cleaning │   Eng    │          │   │    │
-│  │  └────┬─────┴────┬─────┴────┬─────┴────┬─────┘   │    │
-│  └───────┼──────────┼──────────┼──────────┼──────┘    │
-│          │          │          │          │            │
-│  ┌───────▼──────────▼──────────▼──────────▼──────┐    │
-│  │          SharedDataStore (reactive)            │    │
-│  │  ┌──────────┐ ┌──────────┐ ┌───────────────┐  │    │
-│  │  │ raw_data │ │ cleaned  │ │  engineered   │  │    │
-│  │  │          │ │  _data   │ │    _data      │  │    │
-│  │  └──────────┘ └──────────┘ └───────────────┘  │    │
-│  └────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                        app.py                                │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │          ui.page_navbar (Flatly theme)                 │  │
+│  │  ┌──────────┬──────────┬──────────┬──────────┬──────┐ │  │
+│  │  │  User   │  Data    │  Data    │ Feature  │      │ │  │
+│  │  │  Guide  │ Loading  │ Cleaning │   Eng    │ EDA  │ │  │
+│  │  └─────────┴────┬─────┴────┬─────┴────┬─────┴──┬───┘ │  │
+│  └─────────────────┼──────────┼──────────┼────────┼──────┘  │
+│                    │          │          │        │          │
+│  ┌─────────────────▼──────────▼──────────▼────────▼──────┐  │
+│  │            SharedDataStore (reactive values)           │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌───────────────┐       │  │
+│  │  │ raw_data │  │ cleaned  │  │  engineered   │       │  │
+│  │  │          │  │  _data   │  │    _data      │       │  │
+│  │  └──────────┘  └──────────┘  └───────────────┘       │  │
+│  └───────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow
-
-The modules form a pipeline. Each module reads from the previous stage and writes to the next:
 
 ```
 Data Loading ──writes──► raw_data
@@ -56,7 +45,7 @@ Feature Eng ──writes──► engineered_data
 EDA (reads raw, cleaned, or engineered — user selects)
 ```
 
-**Runtime enforcement**: Each module (except Data Loading) contains a prerequisite guard at the top of its server function. If the required upstream data is `None`, the module displays a warning message instead of its controls. These guards are marked with `# === PREREQUISITE GUARD (DO NOT MODIFY) ===` and should not be edited.
+Each downstream module has a **prerequisite guard** (marked `# === PREREQUISITE GUARD (DO NOT MODIFY) ===`). If the required upstream data is `None`, the module displays a warning instead of its controls.
 
 ## Shared Data Store Contract
 
@@ -70,54 +59,116 @@ The `SharedDataStore` class (in `shared/data_store.py`) holds reactive values fo
 | `data_info` | `dict` | Data Loading | All (for display) |
 
 **Helper methods:**
-- `get_latest_data()` — returns the most-processed DataFrame available
+- `get_latest_data()` — returns the most-processed DataFrame available (engineered > cleaned > raw)
 - `get_latest_stage_name()` — returns `"engineered"`, `"cleaned"`, `"raw"`, or `"none"`
-- `dev_mode_init()` — pre-fills all stages with iris data for independent testing
+- `reset_downstream()` — clears cleaned_data and engineered_data when new raw data loads
+- `has_downstream_data()` — checks if any downstream work exists (for confirmation dialogs)
+- `dev_mode_init()` — pre-fills all stages with Titanic data for independent testing
 
-## Module Responsibility Table
+## Module Details
 
-| Module File | Team Member | Reads | Writes | Skeleton Provides |
-|-------------|-------------|-------|--------|-------------------|
-| `modules/data_loading.py` | Member 1 | — | `raw_data`, `data_info` | 7-format upload with auto-detect, Titanic/Ames built-in, paginated data table, column summary, downstream reset |
-| `modules/data_cleaning.py` | Member 2 | `raw_data` | `cleaned_data` | Missing value summary, drop-NaN button, working copy pattern |
-| `modules/feature_engineering.py` | Member 3 | `cleaned_data` | `engineered_data` | Column selector, log/sqrt transform, preview pattern |
-| `modules/eda.py` | Member 4 | all stages | — | Data stage selector, plotly histogram, summary statistics |
+### Data Loading (`modules/data_loading.py`)
+
+**Reads:** nothing (entry point) | **Writes:** `raw_data`, `data_info`
+
+- File upload supporting 5 formats: CSV, TSV, Excel (.xlsx/.xls), JSON, Parquet
+- Auto-detection from file extension
+- Two built-in datasets: Titanic (classification) and Ames Housing (regression)
+- Dataset info bar with badges: filename, format, rows, columns, missing %, memory usage
+- Two-tab main panel: Data Table (with interactive filter builder) and Column Summary
+- Filter builder: categorical multi-select (with NA option) and numeric min/max range
+- Active filters shown as removable chips with live row count
+- Confirmation modal before replacing existing data (resets downstream)
+
+### Data Cleaning (`modules/data_cleaning.py`)
+
+**Reads:** `raw_data` | **Writes:** `cleaned_data`
+
+Ten-step interactive pipeline:
+
+1. **Standardize Missing Values** — convert tokens ("", NA, null, ?, etc.) to NaN
+2. **Format Standardization** — snake_case columns, trim whitespace, lowercase, strip characters, auto-convert to numeric
+3. **Drop Columns** — multi-select column removal
+4. **Handle Missing Values** — per-column imputation (mean, median, mode, zero, constant, ffill, bfill) and bulk strategies (drop rows, drop columns above threshold, auto-impute)
+5. **Handle Duplicates** — detect and remove exact duplicate rows
+6. **Remap Categorical Values** — fix typos and merge labels
+7. **Change Column Types** — convert to numeric, boolean, categorical, or text
+8. **Handle Outliers** — IQR (remove/cap), Z-score (remove/cap), Percentile (cap)
+9. **Scale Numeric Features** — StandardScaler or MinMaxScaler with column exclusion
+10. **Encode Categorical Features** — One-Hot (with drop_first option) or Label encoding
+
+Visual feedback via 5 tabs: Preview, Missing Values chart, Distributions histogram, Outliers boxplot, Info table. Multi-step undo (up to 20 snapshots). Explicit Apply & Save workflow.
+
+### Feature Engineering (`modules/feature_engineering.py`)
+
+**Reads:** `cleaned_data` | **Writes:** `engineered_data`
+
+Three operation categories:
+
+- **Single-Column Transforms:** Log, Log1p, Square Root, Square, Z-Score, Min-Max, Binning (2–10 bins)
+- **Two-Column Combinations:** Add, Multiply, Ratio
+- **Date/Time Extraction:** Year, Month, Day, Day of Week, Hour, Minute, Quarter, Is Weekend, Day of Year
+
+Features: before/after distribution plots, custom feature naming, feature history sidebar, multi-step undo, reset to cleaned data, and Save to Pipeline workflow.
+
+### Exploratory Data Analysis (`modules/eda.py`)
+
+**Reads:** `raw_data`, `cleaned_data`, `engineered_data` (user selects) | **Writes:** nothing
+
+- Data stage selector to compare any pipeline stage
+- Dynamic numeric range and categorical value filters
+- Six interactive Plotly chart types: Scatter (with optional OLS trendline), Bar (average), Box, Histogram (adjustable bins), Violin, Pie
+- Pair plot (scatter matrix) with selectable columns
+- Correlation heatmap with adjustable column limit and RdBu_r color scale
+- Summary statistics table (describe with all dtypes)
+
+### User Guide (`modules/user_guide.py`)
+
+**UI only — no server component**
+
+In-app documentation with a step-by-step walkthrough of all four pipeline stages, supported file formats table, and usage tips (resizable sidebars, tooltips, undo support, prerequisite guards, etc.).
 
 ## File Structure
 
 ```
-app.py                              # Main entry — navbar, tabs, wires modules + store
+app.py                          # Entry point — navbar, store init, module wiring
 modules/
-    __init__.py                     # Re-exports all module UIs and servers
-    data_loading.py                 # Member 1: upload + built-in datasets
-    data_cleaning.py                # Member 2: missing values, duplicates, scaling, encoding
-    feature_engineering.py          # Member 3: create/modify features
-    eda.py                          # Member 4: interactive visualizations + stats
+    __init__.py                 # Re-exports all module UIs and servers
+    user_guide.py               # In-app documentation (UI only)
+    data_loading.py             # Upload, format detection, filters, column summary
+    data_cleaning.py            # 10-step cleaning pipeline
+    feature_engineering.py      # Transforms, combinations, date extraction
+    eda.py                      # Interactive plots, pair plot, heatmap, statistics
 shared/
-    __init__.py                     # Re-exports SharedDataStore and sample dataset helpers
-    data_store.py                   # SharedDataStore class with reactive values
-    sample_datasets.py              # Built-in Titanic + Ames Housing datasets from bundled CSVs
+    __init__.py                 # Re-exports SharedDataStore and sample dataset helpers
+    data_store.py               # SharedDataStore class with reactive values
+    sample_datasets.py          # Titanic & Ames Housing loaders from bundled CSVs
+data/
+    titanic.csv                 # Built-in sample dataset (classification)
+    ames_housing.csv            # Built-in sample dataset (regression)
 docs/
-    ARCHITECTURE.md                 # This file
-requirements.txt                    # Python dependencies
-README.md                          # Quick-start setup guide
+    ARCHITECTURE.md             # This file
+report/
+    Report.md                   # Project report (Markdown)
+    Report.pdf                  # Project report (PDF)
+requirements.txt                # Python dependencies
+README.md                       # Quick-start setup guide
 ```
 
-## Module File Structure
+## Module Convention
 
-Every module file follows the same pattern:
+Every module exports `*_ui()` and `*_server(input, output, session, shared_store, app_session)` using `@module.ui` / `@module.server` decorators:
 
 ```python
 @module.ui
 def my_module_ui():
     return ui.layout_sidebar(
-        ui.sidebar(...),          # Controls
+        ui.sidebar(...),     # Controls
         # Main panel outputs
-        # === TODO: ADD YOUR FEATURES BELOW ===
     )
 
 @module.server
-def my_module_server(input, output, session, shared_store):
+def my_module_server(input, output, session, shared_store, app_session=None):
     # === PREREQUISITE GUARD (DO NOT MODIFY) ===
     @render.ui
     def guard_message():
@@ -126,39 +177,24 @@ def my_module_server(input, output, session, shared_store):
         return ui.TagList()
     # === END GUARD ===
 
-    # ... working example code ...
-
-    # === TODO: ADD YOUR FEATURES BELOW ===
+    # ... implementation ...
 ```
+
+## Tech Stack
+
+- **Framework:** Python Shiny (Core mode) with `@module` decorators
+- **UI Theme:** shinyswatch (Bootstrap Flatly)
+- **Data:** pandas, NumPy
+- **Visualization:** Plotly (interactive), Matplotlib + Seaborn (static in cleaning tabs)
+- **ML/Preprocessing:** scikit-learn (scaling, encoding), statsmodels (OLS trendlines)
+- **File I/O:** openpyxl (Excel), PyArrow (Parquet)
+- **Deployment:** shinyapps.io via rsconnect-python
+- **Python:** 3.11 (managed via [uv](https://docs.astral.sh/uv/))
 
 ## Dev Mode
 
-Set the `DEV_MODE` environment variable to pre-fill all pipeline stages with sample data:
+Pre-fill all pipeline stages with Titanic sample data for independent module testing:
 
 ```bash
 DEV_MODE=true shiny run app.py
 ```
-
-This lets any team member jump directly to their tab without needing to run through the upstream modules first.
-
-## Git Branching Strategy
-
-- `main` — stable, always-runnable scaffold
-- Each member creates a feature branch:
-  - `feature/data-loading`
-  - `feature/data-cleaning`
-  - `feature/feature-engineering`
-  - `feature/eda`
-- Since each member edits a separate file under `modules/`, merges should be conflict-free
-- After all 4 modules are merged, UI/UX polish happens together on `main`
-
-## Tech Stack
-
-- **Python**: 3.11 (managed via [uv](https://docs.astral.sh/uv/) — auto-downloads the correct version)
-- **Environment**: `uv venv --python 3.11` + `uv pip install -r requirements.txt` (creates `.venv/` by default)
-- **Framework**: Python Shiny (Core mode) with `@module` decorators
-- **UI Theme**: shinyswatch (Bootstrap Flatly)
-- **Data**: pandas, numpy
-- **ML/Preprocessing**: scikit-learn, statsmodels
-- **Visualization**: plotly (interactive), matplotlib + seaborn (static)
-- **Deployment**: shinyapps.io via rsconnect-python

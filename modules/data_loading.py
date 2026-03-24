@@ -11,12 +11,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pyreadr
 from shiny import Inputs, Outputs, Session, module, reactive, render, ui
 
 from shared.sample_datasets import BUILTIN_DATASETS, BUILTIN_LABELS
 
-ACCEPTED_EXTENSIONS = [".csv", ".tsv", ".xlsx", ".xls", ".json", ".parquet", ".rds", ".xml"]
+ACCEPTED_EXTENSIONS = [".csv", ".tsv", ".xlsx", ".xls", ".json", ".parquet"]
 
 _CATEGORICAL_THRESHOLD = 30
 
@@ -34,11 +33,6 @@ def _read_file(filepath: str, filename: str) -> pd.DataFrame:
         return pd.read_json(filepath)
     elif ext == ".parquet":
         return pd.read_parquet(filepath)
-    elif ext == ".rds":
-        result = pyreadr.read_r(filepath)
-        return list(result.values())[0]
-    elif ext == ".xml":
-        return pd.read_xml(filepath)
     else:
         raise ValueError(f"Unsupported file format: {ext}")
 
@@ -48,7 +42,6 @@ def _format_from_filename(filename: str) -> str:
     fmt_map = {
         ".csv": "CSV", ".tsv": "TSV", ".xlsx": "Excel",
         ".xls": "Excel", ".json": "JSON", ".parquet": "Parquet",
-        ".rds": "RDS", ".xml": "XML",
     }
     return fmt_map.get(ext, ext.upper())
 
@@ -162,7 +155,7 @@ def data_loading_server(
                     accept=ACCEPTED_EXTENSIONS,
                 ),
                 ui.p(
-                    "Supported: CSV, TSV, Excel, JSON, Parquet, RDS, XML",
+                    "Supported: CSV, TSV, Excel, JSON, Parquet",
                     class_="text-muted small",
                 ),
             )

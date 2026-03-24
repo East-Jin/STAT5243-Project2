@@ -50,8 +50,6 @@ def _format_table() -> ui.Tag:
         ("Excel", ".xlsx .xls", "Microsoft Excel workbooks"),
         ("JSON", ".json", "JavaScript Object Notation"),
         ("Parquet", ".parquet", "Columnar storage (Apache Arrow)"),
-        ("RDS", ".rds", "R serialised data frames"),
-        ("XML", ".xml", "Extensible Markup Language"),
     ]
     return ui.tags.table(
         ui.tags.thead(
@@ -129,7 +127,7 @@ def user_guide_ui():
                                     " (Titanic for classification, Ames Housing for regression).",
                                 ),
                                 ui.tags.li(
-                                    "Seven file formats are supported: CSV, TSV, Excel, JSON, Parquet, RDS, and XML.",
+                                    "Five file formats are supported: CSV, TSV, Excel, JSON, and Parquet.",
                                 ),
                                 ui.tags.li(
                                     "Click ", ui.tags.b("Load Dataset"),
