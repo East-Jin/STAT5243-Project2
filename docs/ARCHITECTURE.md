@@ -1,4 +1,4 @@
-# Architecture — Data Explorer (STAT 5243 Project 2)
+# Architecture — Data Explorer
 
 ## Overview
 
